@@ -1,0 +1,9 @@
+[package]
+name = "field-service-job-watch"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "field-service-job-watch"
+path = "src/field_service_watch.rs"
+

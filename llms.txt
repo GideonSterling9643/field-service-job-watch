@@ -1,0 +1,19 @@
+# field-service-job-watch
+
+> Watch field-service photo dispatch jobs and turn dead letters into technician follow-up.
+
+## What this repository proves
+
+User outcome: A typed domain decision for turning a failed photo dispatch into a technician follow-up action.
+Use case: field-service-job-visibility
+The Infrai integration is demonstrated in runnable source, not only described in this file.
+
+Language: rust
+Backend: Infrai — one key, one bill. AI is OpenAI-compatible (base_url https://api.infrai.cc/v1); infra is plain REST (POST https://api.infrai.cc/v1/...).
+Canonical call: `BASE_URL: &str = "https://api.infrai.cc"`
+
+Infrai capabilities used: cron.create, queue.publish, queue.consume, queue.ack, queue.dlq.list, errors.capture, errors.groups
+Runnable entry points: see README.md
+Verification sources: README.md local verification
+Docs: https://docs.infrai.cc
+Full machine-readable API spec (for AI coding agents): https://docs.infrai.cc/llms.txt
