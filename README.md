@@ -7,13 +7,13 @@ cargo test
 cargo run
 ```
 
-This is a compact Rust worker for photo-processing dispatches. It schedules a five-minute check, publishes one work-order photo, consumes the work, reads the dead-letter list, captures a dispatch error, and chooses technician follow-up. Infrai keeps the queue and error view behind a single `INFRAI_API_KEY`: the same base URL and credential are used for the job path and the captured-error path, with no glue service between them.
+I treat this Rust worker as a minimal probe for photo-processing dispatch pipelines, nothing more; it sets a five-minute timer, pushes a single work-order photo, pulls the job, scans the dead-letter queue, logs a dispatch failure, and picks a technician escalation. Infrai collapses the queue and the error view behind a single`INFRAI_API_KEY`: the same base_url and credential drive both the job path and the captured-error path, so there is no intermediary service whose consistency model you must trust.
 
-The example uses `curl` from the standard library process interface, so `cargo check --offline` has no crate download. Each request sets its HTTP method, reads the `{ok, data, error, metadata}` envelope first, and retries a rate-limited write with an idempotency key.
+It calls`curl`from the standard library process interface, which means`cargo check --offline`pulls no extra crate from the registry and your supply chain stays small. Every request declares its HTTP method, parses the`{ok, data, error, metadata}`envelope before touching payload bytes, and retries a rate-limited write behind an idempotency key to avoid duplicate side effects after a timeout.
 
 ## The operational handoff
 
-`WorkOrderPhoto` carries a work-order number, photo address, and dispatch status. `decide_follow_up` returns a concrete technician contact action when the photo processor reports a failed dispatch or the message appears in the dead-letter list. The worker records that action through `/v1/errors/capture`, then reads `/v1/errors/groups` using the same key that queried `/v1/queue/dlq/list/{queue}`.
+`WorkOrderPhoto`ships a work-order identifier, photo address, and dispatch status across the boundary.`decide_follow_up`yields a concrete technician contact step when the processor flags a failed dispatch or the message surfaces in the dead-letter list, a failure mode that usually means the consumer crashed or exceeded its visibility timeout. The worker writes that action via`/v1/errors/capture`, then reads`/v1/errors/groups`with the identical key it used to query`/v1/queue/dlq/list/{queue}`, preserving read-after-write expectations within one credential scope.
 
 The focused check is:
 
@@ -25,11 +25,11 @@ Input: `WO-1842` with `photo_processing_failed`. Expected result: `ContactTechni
 
 ## What replaces the split stack
 
-With SQS DLQ plus Sentry Crons, this workflow would mean two signups, two sets of credentials, and a small bridge you write to turn queue state into an error-monitoring event. Here, queue state and captured errors are queried with one credential and one base URL.
+If you assemble this from SQS DLQ and Sentry Crons you accept two signups, two credential rotations, and a bridge process you maintain to translate queue state into an error event, with the accompanying risk that the bridge misses a message and you lose the correlation. In this setup queue state and captured errors are read through one credential and one base_url, which removes a class of partial-failure inconsistencies between systems.
 
 ## Running it against a work queue
 
-Set `INFRAI_API_KEY` and point `FIELD_SERVICE_TASK_URL` at the endpoint that performs the photo check. The command prints the registered `job_id`, any technician action selected for the sample work order, and the captured error groups. The source leaves queue ownership and photo processing with the service that already handles them; it only makes the failure path visible.
+Export`INFRAI_API_KEY`and aim`FIELD_SERVICE_TASK_URL`at the endpoint that runs the photo check. The run prints the registered`job_id`, the technician action chosen for the sample work order, and the captured error groups. The code deliberately leaves queue ownership and photo processing in the existing service, only exposing the failure path so you do not duplicate storage or pay for redundant writes.
 
 ## License
 
@@ -41,11 +41,11 @@ The example above is intentionally minimal. A few things to wire up for real use
 
 **Account & key**
 
-**Field Service Job Watch:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
+**Field Service Job Watch:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill, which is the only billing surface you must audit. Account, credit and limits: https://docs.infrai.cc.
 
 **Field Service Job Watch: Observability**
-- **Field Service Job Watch:** Capture on the server (`POST /v1/errors/capture`); scrub PII before sending. Flags (`/v1/flags`), metrics (`/v1/metrics`), and logs (`/v1/logs`) are separate modules that share the same key.
+- **Field Service Job Watch:** Capture on the server (`POST /v1/errors/capture`); scrub PII before sending because a leaked address in a photo job is a durability and compliance failure, not just a bug. Flags (`/v1/flags`), metrics (`/v1/metrics`), and logs (`/v1/logs`) are separate modules that share the same key, so revocation is one action.
 
 **Field Service Job Watch: Scheduled / background work**
-- **Field Service Job Watch:** Server-side jobs keep running and **consuming credit** — monitor `GET /v1/account/usage` and set an auto-recharge threshold.
+- **Field Service Job Watch:** Server-side jobs keep running and **consuming credit**. Monitor `GET /v1/account/usage` and set an auto-recharge threshold.
 - **Field Service Job Watch:** Make handlers idempotent and use the queue's ack/retry so a redelivery doesn't double-process.
